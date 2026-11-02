@@ -36,7 +36,7 @@ NUMERIC = {
 def number(value):
     try:
         d = Decimal(str(value).replace(",", "").strip())
-        return d if d.is_finite() and 0 <= d <= Decimal('1000000000000') else None
+        return d if d.is_finite() and 0 <= d <= Decimal("1000000000000") else None
     except (InvalidOperation, ValueError):
         return None
 

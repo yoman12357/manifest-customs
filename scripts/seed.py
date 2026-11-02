@@ -218,7 +218,7 @@ def seed():
                 )
     for kind in FIELDS:
         (sample_dir / (kind + ".pdf")).write_bytes(make_pdf(kind, sample_values()))
-    import fitz
+    import pymupdf as fitz
 
     with fitz.open(
         stream=make_pdf("packing_list", sample_values()), filetype="pdf"

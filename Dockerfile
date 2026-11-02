@@ -10,9 +10,10 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ backend/
 COPY scripts/ scripts/
+COPY deploy/app-start.sh /app/deploy/app-start.sh
 COPY --from=ui /build/frontend/dist frontend/dist
 RUN useradd --create-home manifest && mkdir -p /app/data /app/samples && chown -R manifest:manifest /app
-USER manifest
 ENV DATA_DIR=/app/data
 EXPOSE 8000
+ENTRYPOINT ["/bin/sh", "/app/deploy/app-start.sh"]
 CMD ["sh","-c","python -m scripts.seed && uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]

@@ -1,0 +1,63 @@
+{
+  "elapsed_seconds": 50.42937970161438,
+  "fields": {
+    "supplier": {
+      "value": "Company B (China)",
+      "original": "Company B (China)",
+      "confidence": 0.55,
+      "source": "Vision draft, page 1. Compare with original before confirming.",
+      "confirmed": false
+    },
+    "consignee": {
+      "value": "Company A Demo Imports",
+      "original": "Company A Demo Imports",
+      "confidence": 0.55,
+      "source": "Vision draft, page 1. Compare with original before confirming.",
+      "confirmed": false
+    },
+    "packages": {
+      "value": "120",
+      "original": "120",
+      "confidence": 0.55,
+      "source": "Vision draft, page 1. Compare with original before confirming.",
+      "confirmed": false
+    },
+    "gross_weight": {
+      "value": "3120",
+      "original": "3120",
+      "confidence": 0.55,
+      "source": "Vision draft, page 1. Compare with original before confirming.",
+      "confirmed": false
+    },
+    "net_weight": {
+      "value": "2800",
+      "original": "2800",
+      "confidence": 0.55,
+      "source": "Vision draft, page 1. Compare with original before confirming.",
+      "confirmed": false
+    },
+    "container": {
+      "value": "DEMO1234567",
+      "original": "DEMO1234567",
+      "confidence": 0.55,
+      "source": "Vision draft, page 1. Compare with original before confirming.",
+      "confirmed": false
+    },
+    "description": {
+      "value": "LED panel light 40W",
+      "original": "LED panel light 40W",
+      "confidence": 0.55,
+      "source": "Vision draft, page 1. Compare with original before confirming.",
+      "confirmed": false
+    },
+    "quantity": {
+      "value": "2400",
+      "original": "2400",
+      "confidence": 0.55,
+      "source": "Vision draft, page 1. Compare with original before confirming.",
+      "confirmed": false
+    }
+  },
+  "engine": "local-vision",
+  "note": "Vision readings are uncalibrated drafts and require confirmation."
+}

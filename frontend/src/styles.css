@@ -1886,3 +1886,44 @@ form label input {
     transition: none !important;
   }
 }
+.preview-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #f7f9f2;
+  border-bottom: 1px solid #dfe5d6;
+  font-size: 10px;
+  color: #8b9a7e;
+}
+.preview-controls button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 4px;
+}
+.preview-controls a {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  margin-left: auto;
+  font-size: 9px;
+}
+.preview-image {
+  height: 650px;
+  overflow: auto;
+  padding: 14px;
+}
+.original-panel .preview-image img {
+  width: 100%;
+  height: auto;
+  max-height: none;
+  display: block;
+  box-shadow: 0 2px 8px #263c3512;
+}
+@media (max-width: 650px) {
+  .preview-image {
+    height: 430px;
+    padding: 8px;
+  }
+}

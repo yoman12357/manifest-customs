@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from .domain import FIELDS, checks, validate_field
 from .extraction import extract, read_file
+import pymupdf
 
 DATA = Path(os.getenv("DATA_DIR", "data")).resolve()
 DATA.mkdir(parents=True, exist_ok=True)
@@ -270,6 +271,14 @@ def detail(sid: str, u=Depends(user)):
         docs = documents(c, sid)
         for d in docs:
             d.pop("path", None)
+            with_path = c.execute(
+                "SELECT path FROM documents WHERE id=?", (d["id"],)
+            ).fetchone()
+            if d["mime"] == "application/pdf":
+                with pymupdf.open(with_path["path"]) as pdf:
+                    d["pages"] = len(pdf)
+            else:
+                d["pages"] = 1
         return {
             **s,
             "documents": docs,
@@ -362,6 +371,27 @@ def original(did: str, u=Depends(user)):
     return FileResponse(
         d["path"], media_type=d["mime"], headers={"Content-Disposition": "inline"}
     )
+
+
+@app.get("/api/documents/{did}/preview/{page}")
+def preview(did: str, page: int, u=Depends(user)):
+    with connect() as c:
+        d = c.execute("SELECT * FROM documents WHERE id=?", (did,)).fetchone()
+        if not d:
+            raise HTTPException(404, "Document not found")
+        shipment(c, d["shipment"], u)
+        if d["mime"] != "application/pdf":
+            raise HTTPException(422, "Preview is for PDFs")
+        with pymupdf.open(d["path"]) as pdf:
+            if not 1 <= page <= len(pdf):
+                raise HTTPException(404, "Page not found")
+            image = (
+                pdf[page - 1].get_pixmap(matrix=pymupdf.Matrix(1.5, 1.5)).tobytes("png")
+            )
+        audit(
+            c, d["shipment"], u, "Original previewed", d["kind"] + ": page " + str(page)
+        )
+    return Response(image, media_type="image/png")
 
 
 class Edit(BaseModel):

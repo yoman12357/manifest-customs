@@ -991,17 +991,7 @@ function Shipment({ id, user, back, onError }) {
                       <ExternalLink size={16} />
                     </a>
                   </div>
-                  {doc.mime === "application/pdf" ? (
-                    <iframe
-                      title={"Original " + label(doc.kind)}
-                      src={"/api/documents/" + doc.id + "/file#toolbar=1"}
-                    />
-                  ) : (
-                    <img
-                      alt={"Original " + label(doc.kind)}
-                      src={"/api/documents/" + doc.id + "/file"}
-                    />
-                  )}
+                  <DocumentPreview key={doc.id} document={doc} />
                   <div className="source-foot">
                     Read from the original. Confirm with confidence.
                   </div>
@@ -1135,6 +1125,70 @@ function Shipment({ id, user, back, onError }) {
     </>
   );
 }
+function DocumentPreview({ document: d }) {
+  const [page, setPage] = useState(1),
+    [error, setError] = useState(false);
+  return (
+    <>
+      <div className="preview-controls">
+        <button
+          disabled={page === 1}
+          onClick={() => {
+            setPage(page - 1);
+            setError(false);
+          }}
+          aria-label="Previous page"
+        >
+          <ArrowLeft size={14} />
+        </button>
+        <span>
+          Page {page} of {d.pages || 1}
+        </span>
+        <button
+          disabled={page >= (d.pages || 1)}
+          onClick={() => {
+            setPage(page + 1);
+            setError(false);
+          }}
+          aria-label="Next page"
+        >
+          <ArrowRight size={14} />
+        </button>
+        <a
+          href={"/api/documents/" + d.id + "/file"}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Open full original <ExternalLink size={12} />
+        </a>
+      </div>
+      {error ? (
+        <div className="empty">
+          <p>Preview unavailable.</p>
+          <a
+            href={"/api/documents/" + d.id + "/file"}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open original document
+          </a>
+        </div>
+      ) : (
+        <div className="preview-image">
+          <img
+            alt={label(d.kind) + " page " + page}
+            src={
+              "/api/documents/" +
+              d.id +
+              (d.mime === "application/pdf" ? "/preview/" + page : "/file")
+            }
+            onError={() => setError(true)}
+          />
+        </div>
+      )}
+    </>
+  );
+}
 function FieldRow({ fieldKey, field: f, save, disabled }) {
   const [value, setValue] = useState(f.value);
   const lines = fieldKey === "line_items";
@@ -1166,7 +1220,7 @@ function FieldRow({ fieldKey, field: f, save, disabled }) {
           ) : f.confidence === 0 ? (
             "Manual entry"
           ) : (
-            Math.round(f.confidence * 100) + "% ? draft"
+            Math.round(f.confidence * 100) + "% - draft"
           )}
         </span>
       </div>

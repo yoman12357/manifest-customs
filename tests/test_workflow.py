@@ -300,3 +300,21 @@ def test_rate_limit(client):
         ).status_code
         == 429
     )
+
+
+def test_preview_and_unconfirmed_approval(client):
+    signin(client)
+    sid = create(client)
+    did = upload(client, sid, "invoice").json()["id"]
+    s = client.get("/api/shipments/" + sid).json()
+    assert s["documents"][0]["pages"] == 1
+    preview = client.get(f"/api/documents/{did}/preview/1")
+    assert preview.status_code == 200 and preview.content.startswith(b"\x89PNG")
+    assert client.get(f"/api/documents/{did}/preview/2").status_code == 404
+    signin(client, "manager")
+    assert (
+        client.post(
+            f"/api/shipments/{sid}/approve", json={"revision": s["revision"]}
+        ).status_code
+        == 409
+    )

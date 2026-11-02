@@ -6,7 +6,7 @@ import json
 import os
 import re
 import httpx
-import fitz
+import pymupdf as fitz
 from PIL import Image
 from .domain import FIELDS
 
