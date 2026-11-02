@@ -1,0 +1,25 @@
+services:
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      APP_ORIGIN: ${APP_ORIGIN:-http://127.0.0.1:8000}
+      DATA_DIR: /app/data
+      OLLAMA_URL: http://ollama:11434
+      VISION_MODEL: moondream
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-ManifestDemo!2026}
+    volumes:
+      - manifest_data:/app/data
+    depends_on:
+      - ollama
+    restart: unless-stopped
+  ollama:
+    image: ollama/ollama:0.12.6
+    volumes:
+      - model_data:/root/.ollama
+    restart: unless-stopped
+volumes:
+  manifest_data:
+  model_data:
