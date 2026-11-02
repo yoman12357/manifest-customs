@@ -4,7 +4,7 @@ GitHub: https://github.com/yoman12357/manifest-customs
 
 Live application: not deployed. A working local application and portable deployment files are provided. This document describes verified behavior separately from future production work.
 
-Prepared for client brief 5: Customs broker's AI document extraction and cross-check tool for import shipments. Author: Aryan. 2 November 2026.
+Prepared for client brief 5: Customs broker's AI document extraction and cross-check tool for import shipments. Author: Aryan. 3 November 2026.
 
 ## 1. Product and scope
 
@@ -30,7 +30,7 @@ Inference runs in a separate Ollama service. This avoids third-party document tr
 
 Users: identifier, unique email, display name, role, password salt and scrypt hash. Sessions: hashed random token, user reference, CSRF token, expiry. Raw session tokens exist only in HttpOnly cookies.
 
-Shipments: identifier, supplier, reference, owning executive, status, timestamps and integer revision. Executives see their own packets; managers see all packets in this single organization. Documents: shipment, one of three document kinds, filename, detected MIME type, private path, extraction fields, engine and explanatory note. A unique shipment/kind constraint prevents accidental duplicate slots.
+Shipments: identifier, supplier, reference, owning executive, status, timestamps and integer revision. Executives see their own packets; managers see all packets in this single organization. Documents: shipment, one of three document kinds, filename, detected MIME type, private path, extraction fields, engine and explanatory note. A unique shipment/kind constraint prevents accidental duplicate slots. Archived document versions retain earlier original files and extraction snapshots when a reviewer replaces or retries a document.
 
 Each extraction field keeps current value, original extraction, source text or page reference, heuristic confidence and human-confirmed flag. Invoice line items are a list of description, HSN, quantity and unit price; the interface exposes a normal row editor. Multiple lines contribute to invoice totals and aggregate quantity checks.
 
@@ -42,7 +42,7 @@ States are Awaiting documents -> In review -> Approved. Every upload or field ed
 
 Sign-in verifies a salted scrypt password and issues an eight-hour session. The frontend retrieves the user and CSRF token at startup. Sign-out removes the server session and cookie. Incorrect credentials and expired sessions have visible recovery states.
 
-An executive creates a packet with supplier and reference, then uploads one invoice, packing list and bill of lading. Accepted formats are PDF, PNG and JPEG. Files are limited to 10 MB; PDFs to ten unencrypted pages; images to twenty megapixels. Content signatures and parsability are checked rather than trusting the filename or declared MIME type. Duplicate slots return a conflict.
+An executive creates a packet with supplier and reference, then uploads one invoice, packing list and bill of lading. Accepted formats are PDF, PNG and JPEG. Files are limited to 10 MB; PDFs to ten unencrypted pages; images to twenty megapixels. Content signatures and parsability are checked rather than trusting the filename or declared MIME type. Duplicate uploads return a conflict; a separate, revision-checked replacement action retains the previous original and resets confirmations and approval.
 
 Uploads are extracted from their actual bytes. The reviewer sees the original, source evidence and extracted value. Each required field must be explicitly confirmed; changing a value also confirms it and records the correction. Every confirmation triggers fresh checks. Empty and invalid values cannot be confirmed.
 
@@ -58,7 +58,7 @@ For scans and missing fields, the first page is converted to a bounded image and
 
 Vision values receive a deliberately cautious heuristic score of 0.55. These scores are routing signals, not calibrated probabilities. Every field requires confirmation regardless of score. Vision evidence says page 1; the image remains adjacent to the field. Native extraction exposes exact source lines. The model never silently confirms its own answer.
 
-Timeout, unavailable model or unreadable content results in a visible manual-entry note. There is no automatic retry loop or invented fixture response. Multi-page PDFs can be viewed page by page and entered manually, but automated vision currently reads only the first page. Bilingual and skewed scans are not validated broadly.
+Timeout, unavailable model or unreadable content results in a visible manual-entry note. Reviewers can retry extraction after restoring the model service. A retry that returns no readings preserves the previous review; successful retries archive the prior state and reset confirmations. There is no automatic retry loop or invented fixture response. Multi-page PDFs can be viewed page by page and entered manually, but automated vision currently reads only the first page. Bilingual and skewed scans are not validated broadly.
 
 A live scanned packing-list test read all eight expected fields correctly with the selected model; an earlier Moondream attempt failed and safely fell back to manual entry. One synthetic scan does not support an accuracy claim on client documents. Next validation should use 200 consented historical shipments, held-out suppliers and field-level exact-match scoring.
 
@@ -86,7 +86,7 @@ The login screen offers fictional demo-role fill buttons without bypassing authe
 
 The automated pytest suite covers the complete three-document workflow, manager-only approval, confirmation requirements, post-approval edit invalidation, inconsistent weights even after confirmation, ownership restrictions, original-file authorization, CSRF, logout, bad signatures, file-size limits, duplicates, stale revisions, numeric edge cases, multi-line decimal arithmetic, model success/failure adapters, CSV injection, hostile origins and login rate limiting.
 
-A separate live HTTP walkthrough created a real packet, uploaded the three sample PDFs, confirmed 27 fields, passed every check, approved as manager and downloaded a 1,351-byte CSV. A real scan was then uploaded through the running API; it used local-vision and remained blocked from export. Evidence is reproducible through scripts/live_smoke.py. Vision calls were not mocked in that walkthrough.
+The final suite passed 25 tests, including replacement/retry recovery, archived-original authorization, flattened multi-line export, malformed model values and bounded PDF rasterization. A separate live HTTP walkthrough created a real packet, uploaded the three sample PDFs, confirmed 27 fields, passed every check, approved as manager and downloaded a 388-byte line-item CSV. A real scan was then uploaded through the running API; it used local-vision and remained blocked from export. Evidence is reproducible through scripts/live_smoke.py. Vision calls were not mocked in that walkthrough.
 
 Browser review covered desktop and phone layouts, sign-in, shipment navigation, cross-check presentation, readable source rendering and line-item editing controls. Screenshots accompany this document. The frontend production build passed. Automated tests are isolated from the demo database. No Docker build, remote deployment, load test or 200-shipment accuracy evaluation is claimed.
 
@@ -94,11 +94,11 @@ Browser review covered desktop and phone layouts, sign-in, shipment navigation, 
 
 A1: This is one organization, with executive-owned packets and organization-wide manager access. Manager approval is an additional conservative export gate. Identity uses seeded passwords rather than an enterprise SSO integration.
 
-A2: The three document kinds each occupy one slot. Replacements/versioned uploads and multiple supplier invoices are deferred. A reviewer can correct any field manually; a fundamentally wrong original currently requires a fresh packet.
+A2: The three document kinds each occupy one current slot. Replacement originals and earlier extraction snapshots are retained in an access-controlled version history. Multiple supplier invoices in one packet remain deferred. Reviewers can correct fields manually, retry extraction, or replace a wrong original.
 
 A3: Weights are kg, item/package quantities are whole numbers, and one currency applies per invoice. Currency choices are a bounded supported list. Exact cross-document weight equality and a 0.01 invoice tolerance are assumed until the client supplies formal tolerances and currency rules. Up to 100 line items are supported within the field-size limit.
 
-A4: No filing-software import schema was provided. CSV is a normalized four-column layout: shipment_id, document_type, field, value. Invoice line items are serialized in their field. A client-specific flattening/mapping adapter is a next step, not a claimed integration.
+A4: No filing-software import schema was provided. CSV uses one row per invoice item, with shipment and invoice metadata, bill-of-lading number, container, package counts, weights, description, HSN, quantity, unit price, computed line total and invoice total. All values are flattened into ordinary columns. A client-specific column-mapping adapter remains a next step, not a claimed integration.
 
 A5: All names, account identities, bill/container identifiers, dates and generated documents are fictional. Company aliases and the brief's example discrepancy are reused; other metadata is synthetic. Model scores are uncalibrated heuristics and not accuracy measurements.
 
@@ -106,6 +106,25 @@ A6: Local execution is the verified delivery. The client requires India hosting;
 
 A7: Small-team workload, one application instance and one worker justify SQLite. Files, sessions and metadata share durable local storage. Larger scale needs a PostgreSQL/object-storage migration, background inference jobs, quotas and operational monitoring.
 
-Cuts: customs filing, HSN classification, duty computation and importer tracking portal are out of scope in the brief. Proprietary Excel integration, per-supplier accuracy dashboards, cryptographic audit seals, real-time collaboration, document replacement, multilingual benchmarks and automatic multi-page vision are deferred.
+Cuts: customs filing, HSN classification, duty computation and importer tracking portal are out of scope in the brief. Proprietary Excel integration, per-supplier accuracy dashboards, cryptographic audit seals, real-time collaboration, multilingual benchmarks and automatic multi-page vision are deferred.
 
-Next: obtain client import schema and tolerances; evaluate 200 historical packets with consent; calibrate field confidence; add document versions and page-level provenance; provision India infrastructure with backup/restore evidence; replace demo identities; add asynchronous inference and benchmark actual time saved. The first production acceptance gate is measured extraction/review performance, not a visual demo alone.
+Next: obtain client import schema and tolerances; evaluate 200 historical packets with consent; calibrate field confidence; extend field-level page provenance; provision India infrastructure with backup/restore evidence; replace demo identities; add asynchronous inference and benchmark actual time saved. The first production acceptance gate is measured extraction/review performance, not a visual demo alone.
+
+
+## 10. Core-build acceptance map
+
+Shipment list and status: implemented in the overview and Shipments views with database-backed counts, search, status filters, empty states and a per-packet status badge.
+
+Upload and AI extraction: three named document slots accept actual PDFs/photos; native text is grounded in source lines and scanned inputs use the local vision model. Real scan inference was verified separately from mocked adapter tests.
+
+Side-by-side human review: original pages and draft fields appear together on desktop and stack on phones. Low-confidence values are marked. Every required field must be confirmed, and invalid values are rejected.
+
+Cross-checks across all three documents: package/weight/party/container consistency, invoice line sums, aggregate quantity and net-versus-gross checks are deterministic and visible. The brief's seeded weight mismatch remains export-blocked even if a user confirms every field.
+
+Roles, database and sign-in: executive ownership, manager approval, stored shipment/document/review state and session-based sign-in are enforced server-side. A direct unauthorized API request cannot bypass the UI.
+
+CSV export: current approved data is rechecked in a transaction and exported as one row per item. Corrections, document replacements and successful extraction retries revoke approval. Unsafe spreadsheet formula prefixes are neutralized.
+
+Responsive design and recovery: desktop and phone review, loading/empty/error states, manual entry, extraction retry, retained prior originals and in-place export errors are implemented. The frontend production build and independent GitHub CI checks are part of verification.
+
+Submission: this PDF has the public repository link at the top; deployment.md supplies setup, environment names and reviewer logins. The upload ZIP contains exactly these two files and is below 25 MB. Hosted deployment, a 200-shipment client accuracy evaluation and production compliance validation are explicitly not claimed.

@@ -1,12 +1,12 @@
 {
-  "native_packet": "SHP-DA15CB",
+  "native_packet": "SHP-27737E",
   "confirmed_fields": 27,
   "all_checks_passed": true,
   "approval_status": "Approved",
-  "export_bytes": 1351,
+  "export_bytes": 388,
   "scan": {
-    "shipment": "SHP-E3ABBD",
-    "elapsed_seconds": 3.68,
+    "shipment": "SHP-1EFC1E",
+    "elapsed_seconds": 4.1,
     "engine": "local-vision",
     "fields": {
       "supplier": {
@@ -65,6 +65,16 @@
         "source": "Vision draft, page 1. Compare with original before confirming.",
         "confirmed": false
       }
+    },
+    "expected_field_matches": {
+      "supplier": true,
+      "consignee": true,
+      "packages": true,
+      "gross_weight": true,
+      "net_weight": true,
+      "container": true,
+      "description": true,
+      "quantity": true
     },
     "export_blocked": true
   }

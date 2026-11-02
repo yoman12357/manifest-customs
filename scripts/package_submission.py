@@ -91,7 +91,7 @@ def build():
             story.append(Paragraph(escape(block.replace("\n", " ")), styles["Copy"]))
     for name, title, caption, width in [
         (
-            "desktop-review.png",
+            "final-review.png",
             "Design evidence / Desktop review",
             "The authenticated original and editable fields stay adjacent. Every draft remains unconfirmed until checked by a reviewer.",
             490,
@@ -103,7 +103,7 @@ def build():
             235,
         ),
         (
-            "desktop-overview.png",
+            "final-overview.png",
             "Design evidence / Operations overview",
             "Database-backed shipment counts, search and status filters provide a focused starting point.",
             490,
@@ -132,7 +132,7 @@ def build():
         canvas.line(47, 43, 548, 43)
         canvas.setFont("Helvetica", 8)
         canvas.setFillColor(colors.HexColor("#8b9980"))
-        canvas.drawString(48, 29, "MANIFEST / TECHNICAL DESIGN / 02 NOV 2026")
+        canvas.drawString(48, 29, "MANIFEST / TECHNICAL DESIGN / 03 NOV 2026")
         canvas.drawRightString(547, 29, str(doc.page))
 
     SimpleDocTemplate(

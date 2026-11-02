@@ -42,8 +42,9 @@ These are deliberately public demo credentials for fictional records. They are n
 2. Create a shipment. Upload `samples/invoice.pdf`, `samples/packing_list.pdf`, and `samples/bill_of_lading.pdf` into their named slots.
 3. Compare originals with the fields. Confirm all fields, including the line-item group. Correct values inline if needed. All three regular sample documents match.
 4. Sign out and sign in as manager. Open the new shipment, inspect its checks, approve, and export CSV.
-5. Change a field after approval: the packet returns to review and export locks again.
-6. Create another shipment and upload `samples/packing_list_scan.png`. This exercises real vision inference. Uncertain readings require confirmation; missing readings can be entered manually.
+5. Change a field after approval: the packet returns to review and export locks again. CSV has one row per invoice item, with ordinary metadata and numeric columns.
+6. To recover from a wrong original, use Replace document. To re-run extraction, use Retry extraction. Prior originals are retained; successful changes reset confirmations and approval. A failed retry with no readings preserves existing review.
+7. Create another shipment and upload `samples/packing_list_scan.png`. This exercises real vision inference. Uncertain readings require confirmation; missing readings can be entered manually.
 
 ## 4. Run verification
 
