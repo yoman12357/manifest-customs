@@ -1,0 +1,33 @@
+# Fictional-data demo only: Render currently has no India region.
+services:
+  - type: web
+    name: manifest-customs
+    runtime: docker
+    plan: starter
+    region: singapore
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_ORIGIN
+        sync: false
+      - key: OLLAMA_URL
+        value: http://manifest-vision:11434
+      - key: VISION_MODEL
+        value: qwen2.5vl:3b
+      - key: AI_TIMEOUT
+        value: 120
+    disk:
+      name: manifest-data
+      mountPath: /app/data
+      sizeGB: 1
+  - type: pserv
+    name: manifest-vision
+    runtime: docker
+    dockerfilePath: ./deploy/vision.Dockerfile
+    plan: standard
+    region: singapore
+    disk:
+      name: vision-model
+      mountPath: /root/.ollama
+      sizeGB: 10
