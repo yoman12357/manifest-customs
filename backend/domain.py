@@ -35,7 +35,10 @@ NUMERIC = {
 
 def number(value):
     try:
-        d = Decimal(str(value).replace(",", "").strip())
+        text = str(value).replace(",", "").strip()
+        if len(text) > 80:
+            return None
+        d = Decimal(text)
         return d if d.is_finite() and 0 <= d <= Decimal("1000000000000") else None
     except (InvalidOperation, ValueError):
         return None
@@ -76,8 +79,12 @@ def parse_items(value):
         for item in items:
             if (
                 not isinstance(item, dict)
-                or not str(item.get("description", "")).strip()
-                or not str(item.get("hsn", "")).strip()
+                or not isinstance(item.get("description"), str)
+                or not item["description"].strip()
+                or len(item["description"]) > 500
+                or not isinstance(item.get("hsn"), str)
+                or not item["hsn"].strip()
+                or len(item["hsn"]) > 30
             ):
                 raise ValueError()
             for k in ["quantity", "unit_price"]:
@@ -88,7 +95,7 @@ def parse_items(value):
         return items
     except (ValueError, TypeError, KeyError):
         raise ValueError(
-            "Line items must be a JSON array of description, hsn, quantity and unit_price; quantities are non-negative whole numbers."
+            "Each item needs a description, HSN, whole-number quantity and non-negative unit price."
         )
 
 

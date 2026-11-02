@@ -318,3 +318,181 @@ def test_preview_and_unconfirmed_approval(client):
         ).status_code
         == 409
     )
+
+
+def test_replacement_retains_original_and_revokes_approval(client):
+    signin(client)
+    sid = create(client)
+    for kind in ["invoice", "packing_list", "bill_of_lading"]:
+        assert upload(client, sid, kind).status_code == 201
+    s = confirm_all(client, sid)
+    signin(client, "manager")
+    assert (
+        client.post(
+            f"/api/shipments/{sid}/approve", json={"revision": s["revision"]}
+        ).status_code
+        == 200
+    )
+    s = client.get("/api/shipments/" + sid).json()
+    d = next(d for d in s["documents"] if d["kind"] == "packing_list")
+    original = client.get(f"/api/documents/{d['id']}/file").content
+    r = client.post(
+        f"/api/documents/{d['id']}/replace",
+        data={"revision": s["revision"]},
+        files={
+            "file": (
+                "replacement.pdf",
+                make_pdf("packing_list", sample_values(gross="3165")),
+                "application/pdf",
+            )
+        },
+    )
+    assert r.status_code == 200, r.text
+    current = client.get("/api/shipments/" + sid).json()
+    replaced = next(x for x in current["documents"] if x["id"] == d["id"])
+    assert current["status"] == "In review"
+    assert not any(f["confirmed"] for f in replaced["fields"].values())
+    assert replaced["fields"]["gross_weight"]["value"] == "3165"
+    version = replaced["versions"][0]["id"]
+    route = f"/api/documents/{d['id']}/versions/{version}/file"
+    assert client.get(route).content == original
+    assert client.get(f"/api/shipments/{sid}/export").status_code == 409
+    signin(client, "other")
+    assert client.get(route).status_code == 404
+    assert (
+        client.post(
+            f"/api/documents/{d['id']}/retry", json={"revision": current["revision"]}
+        ).status_code
+        == 404
+    )
+
+
+def test_retry_preserves_review_on_failure_and_rejects_stale(client, monkeypatch):
+    signin(client)
+    sid = create(client)
+    did = upload(client, sid, "invoice").json()["id"]
+    s = client.get("/api/shipments/" + sid).json()
+    assert (
+        client.post(
+            f"/api/documents/{did}/retry", json={"revision": s["revision"] - 1}
+        ).status_code
+        == 409
+    )
+    blank = {
+        "fields": {
+            k: {"value": "", "confirmed": False} for k in s["documents"][0]["fields"]
+        },
+        "engine": "manual",
+        "note": "offline",
+    }
+    monkeypatch.setattr(main, "extract", lambda *args: blank)
+    assert (
+        client.post(
+            f"/api/documents/{did}/retry", json={"revision": s["revision"]}
+        ).status_code
+        == 409
+    )
+    current = client.get("/api/shipments/" + sid).json()
+    assert current["revision"] == s["revision"]
+    assert current["documents"][0]["fields"] == s["documents"][0]["fields"]
+
+
+def test_successful_retry_archives_previous_fields(client):
+    signin(client)
+    sid = create(client)
+    did = upload(client, sid, "invoice").json()["id"]
+    s = client.get("/api/shipments/" + sid).json()
+    assert (
+        client.post(
+            f"/api/documents/{did}/retry", json={"revision": s["revision"]}
+        ).status_code
+        == 200
+    )
+    current = client.get("/api/shipments/" + sid).json()
+    assert current["revision"] == s["revision"] + 1
+    assert len(current["documents"][0]["versions"]) == 1
+    assert any(a["action"] == "Extraction retried" for a in current["audit"])
+
+
+def test_flattened_multiline_csv(client):
+    import csv, io
+
+    signin(client)
+    sid = create(client)
+    for kind in ["invoice", "packing_list", "bill_of_lading"]:
+        upload(client, sid, kind)
+    s = client.get("/api/shipments/" + sid).json()
+    inv = next(d for d in s["documents"] if d["kind"] == "invoice")
+    pack = next(d for d in s["documents"] if d["kind"] == "packing_list")
+    items = [
+        {"description": "=1+1", "hsn": "1001", "quantity": "3", "unit_price": "0.10"},
+        {
+            "description": "Second item",
+            "hsn": "1002",
+            "quantity": "2",
+            "unit_price": "0.20",
+        },
+    ]
+    for did, key, value in [
+        (inv["id"], "line_items", json.dumps(items)),
+        (inv["id"], "invoice_total", "0.70"),
+        (pack["id"], "quantity", "5"),
+    ]:
+        assert (
+            client.patch(
+                f"/api/documents/{did}/fields/{key}",
+                json={"value": value, "revision": s["revision"]},
+            ).status_code
+            == 200
+        )
+        s["revision"] += 1
+    s = confirm_all(client, sid)
+    signin(client, "manager")
+    assert (
+        client.post(
+            f"/api/shipments/{sid}/approve", json={"revision": s["revision"]}
+        ).status_code
+        == 200
+    )
+    rows = list(
+        csv.DictReader(io.StringIO(client.get(f"/api/shipments/{sid}/export").text))
+    )
+    assert len(rows) == 2
+    assert rows[0]["description"] == "'=1+1"
+    assert rows[0]["line_total"] == "0.30" and rows[1]["line_total"] == "0.40"
+    assert rows[0]["invoice_total"] == "0.70"
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"description": None},
+        {"description": {"nested": "bad"}},
+        {"hsn": []},
+        {"hsn": "x" * 31},
+    ],
+)
+def test_malformed_model_line_items(patch):
+    item = {
+        "description": "Item",
+        "hsn": "9405",
+        "quantity": "1",
+        "unit_price": "1.00",
+        **patch,
+    }
+    with pytest.raises(ValueError):
+        validate_field("line_items", json.dumps([item]))
+
+
+def test_oversized_pdf_page_is_bounded():
+    import pymupdf
+    from backend.extraction import read_file
+    from PIL import Image
+    import io
+
+    with pymupdf.open() as pdf:
+        pdf.new_page(width=10000, height=10000)
+        raw = pdf.tobytes()
+    _, image, _ = read_file(raw, "application/pdf")
+    with Image.open(io.BytesIO(image)) as im:
+        assert max(im.size) <= 1800

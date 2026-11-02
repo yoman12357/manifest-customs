@@ -93,11 +93,18 @@ def main():
         )
         r.raise_for_status()
         ai = r.json()
+        from scripts.seed import sample_values
+
+        expected = sample_values()
+        matches = {key: f["value"] == expected[key] for key, f in ai["fields"].items()}
+        assert ai["engine"] == "local-vision", ai["note"]
+        assert all(matches.values()), matches
         report["scan"] = {
             "shipment": scan_sid,
             "elapsed_seconds": round(time.time() - start, 2),
             "engine": ai["engine"],
             "fields": ai["fields"],
+            "expected_field_matches": matches,
             "export_blocked": c.get(f"/api/shipments/{scan_sid}/export").status_code
             == 409,
         }

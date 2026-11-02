@@ -787,6 +787,56 @@ function Shipment({ id, user, back, onError }) {
       setUploading("");
     }
   }
+  async function reviseDocument(d, file = null) {
+    setUploading(d.kind);
+    onError("");
+    try {
+      if (file) {
+        const form = new FormData();
+        form.append("file", file);
+        form.append("revision", s.revision);
+        await api("/documents/" + d.id + "/replace", {
+          method: "POST",
+          body: form,
+        });
+      } else {
+        await api("/documents/" + d.id + "/retry", {
+          method: "POST",
+          body: JSON.stringify({ revision: s.revision }),
+        });
+      }
+      await load();
+    } catch (e) {
+      onError(e.message);
+    } finally {
+      setUploading("");
+    }
+  }
+  async function downloadExport() {
+    setBusy(true);
+    onError("");
+    try {
+      const response = await fetch("/api/shipments/" + id + "/export");
+      if (!response.ok) {
+        const data = await response.json();
+        throw Error(
+          data.detail || "Export failed. Refresh the packet and try again.",
+        );
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = id + ".csv";
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      await load();
+    } catch (e) {
+      onError(e.message);
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
   if (error) return <ErrorState message={error} retry={load} />;
   if (!s) return <Loading />;
   const failed = s.checks.filter((c) => !c.passed),
@@ -837,16 +887,13 @@ function Shipment({ id, user, back, onError }) {
           )}
           <button
             className="primary"
-            disabled={s.status !== "Approved"}
+            disabled={busy || !!uploading || s.status !== "Approved"}
             title={
               s.status !== "Approved"
                 ? "Complete review and manager approval to export"
                 : "Download reviewed data"
             }
-            onClick={() => {
-              window.location.href = "/api/shipments/" + id + "/export";
-              setTimeout(load, 500);
-            }}
+            onClick={downloadExport}
           >
             <Download size={17} /> Export CSV
           </button>
@@ -975,6 +1022,62 @@ function Shipment({ id, user, back, onError }) {
                 </span>
               </div>
               <div className="notice compact">{doc.note}</div>
+              <div className="document-recovery">
+                <div className="recovery-actions">
+                  <button
+                    className="secondary"
+                    disabled={busy || !!uploading}
+                    onClick={() => reviseDocument(doc)}
+                  >
+                    <RefreshCw size={14} />
+                    Retry extraction
+                  </button>
+                  <label className="secondary replace-control">
+                    <UploadCloud size={14} />
+                    Replace document
+                    <input
+                      aria-label="Replace document"
+                      type="file"
+                      accept=".pdf,.png,.jpg,.jpeg"
+                      disabled={busy || !!uploading}
+                      onChange={(e) => {
+                        if (e.target.files[0])
+                          reviseDocument(doc, e.target.files[0]);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+                <p>
+                  Retrying or replacing resets this document's confirmations and
+                  packet approval. Prior originals are retained.
+                </p>
+                {doc.versions?.length > 0 && (
+                  <details>
+                    <summary>
+                      {doc.versions.length} prior document version
+                      {doc.versions.length === 1 ? "" : "s"}
+                    </summary>
+                    {doc.versions.map((v) => (
+                      <a
+                        key={v.id}
+                        href={
+                          "/api/documents/" +
+                          doc.id +
+                          "/versions/" +
+                          v.id +
+                          "/file"
+                        }
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {v.filename} <span>{time(v.created)}</span>
+                        <ExternalLink size={12} />
+                      </a>
+                    ))}
+                  </details>
+                )}
+              </div>
               <div className="review-grid">
                 <section className="original-panel">
                   <div className="original-bar">
@@ -1012,7 +1115,7 @@ function Shipment({ id, user, back, onError }) {
                       key={doc.id + key + f.value + f.confirmed}
                       fieldKey={key}
                       field={f}
-                      disabled={busy}
+                      disabled={busy || !!uploading}
                       save={async (value) => {
                         setBusy(true);
                         try {

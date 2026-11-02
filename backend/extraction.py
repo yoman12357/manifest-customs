@@ -31,18 +31,26 @@ LABELS = {
 }
 
 
+def render_page(page, max_dimension=1800):
+    """Bound raster size even for PDFs with unusually large page boxes."""
+    rect = page.rect
+    if rect.width <= 0 or rect.height <= 0:
+        raise ValueError("Invalid PDF page dimensions")
+    scale = min(1.5, max_dimension / max(rect.width, rect.height))
+    return page.get_pixmap(matrix=fitz.Matrix(scale, scale)).tobytes("png")
+
+
 def read_file(raw, mime):
     if mime == "application/pdf":
         with fitz.open(stream=raw, filetype="pdf") as pdf:
             if pdf.is_encrypted or len(pdf) > 10 or len(pdf) == 0:
                 raise ValueError("Use an unencrypted PDF with 1–10 pages")
             text = "\n".join(p.get_text() for p in pdf)
-            image = pdf[0].get_pixmap(matrix=fitz.Matrix(1.3, 1.3)).tobytes("png")
+            image = render_page(pdf[0])
             return text[:30000], image, len(pdf)
     with Image.open(io.BytesIO(raw)) as im:
         if im.width * im.height > 20000000:
             raise ValueError("Image must be below 20 megapixels")
-        im.convert("RGB").thumbnail((1600, 1600))
         im = im.convert("RGB")
         im.thumbnail((1600, 1600))
         buf = io.BytesIO()
@@ -125,7 +133,11 @@ def extract(raw, mime, kind):
                     )
                     count += 1
             engine = "local-vision" if count else engine
-            note = "Vision readings are uncalibrated drafts and require confirmation."
+            note = (
+                "Vision readings are uncalibrated drafts and require confirmation."
+                if count
+                else "No readable vision fields were returned. Enter values from the original or retry extraction."
+            )
         except Exception:
             note = "Vision extraction unavailable or unreadable. Review native-text readings and enter missing fields manually. Retry after checking the local model."
     else:

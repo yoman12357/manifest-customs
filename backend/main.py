@@ -8,7 +8,7 @@ from pathlib import Path
 import secrets
 import sqlite3
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from fastapi import (
     FastAPI,
     Request,
@@ -22,8 +22,8 @@ from fastapi import (
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from .domain import FIELDS, checks, validate_field
-from .extraction import extract, read_file
+from .domain import FIELDS, checks, validate_field, parse_items, number
+from .extraction import extract, read_file, render_page
 import pymupdf
 
 DATA = Path(os.getenv("DATA_DIR", "data")).resolve()
@@ -32,11 +32,16 @@ DATA.mkdir(parents=True, exist_ok=True)
 DB = DATA / "manifest.sqlite3"
 
 
+@contextmanager
 def connect():
     c = sqlite3.connect(DB, timeout=20)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA foreign_keys=ON")
-    return c
+    try:
+        with c:
+            yield c
+    finally:
+        c.close()
 
 
 def password_hash(password, salt):
@@ -55,6 +60,7 @@ def initialize():
         CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY, shipment TEXT REFERENCES shipments(id), kind TEXT, filename TEXT, mime TEXT, path TEXT, fields TEXT, engine TEXT, note TEXT, UNIQUE(shipment,kind));
         CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, shipment TEXT, actor TEXT, action TEXT, detail TEXT, created REAL);
         CREATE TABLE IF NOT EXISTS login_attempts(ip TEXT, created REAL);
+        CREATE TABLE IF NOT EXISTS document_versions(id INTEGER PRIMARY KEY, document TEXT REFERENCES documents(id), snapshot TEXT, created REAL);
         """)
 
 
@@ -270,6 +276,17 @@ def detail(sid: str, u=Depends(user)):
         s = shipment(c, sid, u)
         docs = documents(c, sid)
         for d in docs:
+            d["versions"] = [
+                dict(
+                    id=v["id"],
+                    filename=json.loads(v["snapshot"])["filename"],
+                    created=v["created"],
+                )
+                for v in c.execute(
+                    "SELECT * FROM document_versions WHERE document=? ORDER BY id DESC",
+                    (d["id"],),
+                )
+            ]
             d.pop("path", None)
             with_path = c.execute(
                 "SELECT path FROM documents WHERE id=?", (d["id"],)
@@ -308,27 +325,7 @@ def upload(
                 409,
                 "This slot is occupied. Use the existing document review or create a new shipment.",
             )
-    raw = file.file.read(10 * 1024 * 1024 + 1)
-    if len(raw) > 10 * 1024 * 1024:
-        raise HTTPException(413, "Maximum file size is 10 MB")
-    mime = (
-        "application/pdf"
-        if raw.startswith(b"%PDF")
-        else "image/png"
-        if raw.startswith(b"\x89PNG\r\n\x1a\n")
-        else "image/jpeg"
-        if raw.startswith(b"\xff\xd8\xff")
-        else None
-    )
-    if not mime:
-        raise HTTPException(422, "Upload a valid PDF, PNG or JPEG")
-    try:
-        read_file(raw, mime)
-    except Exception:
-        raise HTTPException(
-            422,
-            "File could not be read. Use an unencrypted PDF of at most 10 pages, or an image under 20 megapixels.",
-        )
+    raw, mime = validated_upload(file)
     result = extract(raw, mime, kind)
     did = secrets.token_hex(12)
     path = DATA / "uploads" / did
@@ -360,6 +357,31 @@ def upload(
     return {"id": did, **result}
 
 
+def validated_upload(file):
+    raw = file.file.read(10 * 1024 * 1024 + 1)
+    if len(raw) > 10 * 1024 * 1024:
+        raise HTTPException(413, "Maximum file size is 10 MB")
+    mime = (
+        "application/pdf"
+        if raw.startswith(b"%PDF")
+        else "image/png"
+        if raw.startswith(b"\x89PNG\r\n\x1a\n")
+        else "image/jpeg"
+        if raw.startswith(b"\xff\xd8\xff")
+        else None
+    )
+    if not mime:
+        raise HTTPException(422, "Upload a valid PDF, PNG or JPEG")
+    try:
+        read_file(raw, mime)
+    except Exception:
+        raise HTTPException(
+            422,
+            "File could not be read. Use an unencrypted PDF of at most 10 pages, or an image under 20 megapixels.",
+        )
+    return raw, mime
+
+
 @app.get("/api/documents/{did}/file")
 def original(did: str, u=Depends(user)):
     with connect() as c:
@@ -385,9 +407,7 @@ def preview(did: str, page: int, u=Depends(user)):
         with pymupdf.open(d["path"]) as pdf:
             if not 1 <= page <= len(pdf):
                 raise HTTPException(404, "Page not found")
-            image = (
-                pdf[page - 1].get_pixmap(matrix=pymupdf.Matrix(1.5, 1.5)).tobytes("png")
-            )
+            image = render_page(pdf[page - 1])
         audit(
             c, d["shipment"], u, "Original previewed", d["kind"] + ": page " + str(page)
         )
@@ -443,6 +463,112 @@ class Revision(BaseModel):
     revision: int
 
 
+def document_snapshot(did, revision, u):
+    with connect() as c:
+        d = c.execute("SELECT * FROM documents WHERE id=?", (did,)).fetchone()
+        if not d:
+            raise HTTPException(404, "Document not found")
+        s = shipment(c, d["shipment"], u)
+        if s["revision"] != revision:
+            raise HTTPException(409, "Shipment changed. Refresh before retrying.")
+        return dict(d)
+
+
+def save_document_revision(
+    d, revision, result, u, action, path=None, mime=None, filename=None
+):
+    with connect() as c:
+        c.execute("BEGIN IMMEDIATE")
+        s = shipment(c, d["shipment"], u)
+        if s["revision"] != revision:
+            raise HTTPException(
+                409, "Shipment changed during extraction. Refresh before retrying."
+            )
+        c.execute(
+            "INSERT INTO document_versions(document,snapshot,created) VALUES(?,?,?)",
+            (d["id"], json.dumps(d), time.time()),
+        )
+        c.execute(
+            "UPDATE documents SET path=?,mime=?,filename=?,fields=?,engine=?,note=? WHERE id=?",
+            (
+                str(path or d["path"]),
+                mime or d["mime"],
+                filename or d["filename"],
+                json.dumps(result["fields"]),
+                result["engine"],
+                result["note"],
+                d["id"],
+            ),
+        )
+        invalidate(c, d["shipment"])
+        audit(
+            c,
+            d["shipment"],
+            u,
+            action,
+            d["kind"] + ": prior original retained; confirmations reset",
+        )
+
+
+@app.post("/api/documents/{did}/replace")
+def replace_document(
+    did: str, revision: int = Form(...), file: UploadFile = File(...), u=Depends(user)
+):
+    d = document_snapshot(did, revision, u)
+    raw, mime = validated_upload(file)
+    result = extract(raw, mime, d["kind"])
+    path = DATA / "uploads" / secrets.token_hex(12)
+    path.write_bytes(raw)
+    try:
+        save_document_revision(
+            d,
+            revision,
+            result,
+            u,
+            "Document replaced",
+            path,
+            mime,
+            Path(file.filename or "document").name[:180],
+        )
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+    return {"ok": True}
+
+
+@app.post("/api/documents/{did}/retry")
+def retry_document(did: str, body: Revision, u=Depends(user)):
+    d = document_snapshot(did, body.revision, u)
+    result = extract(Path(d["path"]).read_bytes(), d["mime"], d["kind"])
+    if not any(f["value"] for f in result["fields"].values()):
+        raise HTTPException(
+            409,
+            "No readable fields returned. Your previous review is preserved; enter values manually or replace the document.",
+        )
+    save_document_revision(d, body.revision, result, u, "Extraction retried")
+    return {"ok": True}
+
+
+@app.get("/api/documents/{did}/versions/{version}/file")
+def prior_original(did: str, version: int, u=Depends(user)):
+    with connect() as c:
+        d = c.execute("SELECT * FROM documents WHERE id=?", (did,)).fetchone()
+        if not d:
+            raise HTTPException(404, "Document not found")
+        shipment(c, d["shipment"], u)
+        v = c.execute(
+            "SELECT snapshot FROM document_versions WHERE id=? AND document=?",
+            (version, did),
+        ).fetchone()
+        if not v:
+            raise HTTPException(404, "Version not found")
+        snap = json.loads(v["snapshot"])
+        audit(c, d["shipment"], u, "Prior original viewed", str(version))
+    return FileResponse(
+        snap["path"], media_type=snap["mime"], headers={"Content-Disposition": "inline"}
+    )
+
+
 @app.post("/api/shipments/{sid}/approve")
 def approve(sid: str, body: Revision, u=Depends(user)):
     if u["role"] != "manager":
@@ -481,11 +607,64 @@ def export(sid: str, u=Depends(user)):
             )
         out = io.StringIO(newline="")
         w = csv.writer(out)
-        w.writerow(["shipment_id", "document_type", "field", "value"])
-        for d in docs:
-            for key, f in d["fields"].items():
-                w.writerow([sid, d["kind"], key, safe_csv(f["value"])])
-        audit(c, sid, u, "CSV exported", "Manifest normalized v1 layout")
+        by_kind = {
+            d["kind"]: {k: f["value"] for k, f in d["fields"].items()} for d in docs
+        }
+        inv = by_kind["invoice"]
+        w.writerow(
+            [
+                "shipment_id",
+                "supplier",
+                "consignee",
+                "invoice_number",
+                "invoice_date",
+                "currency",
+                "incoterm",
+                "bl_number",
+                "container",
+                "packages",
+                "gross_weight_kg",
+                "net_weight_kg",
+                "line_number",
+                "description",
+                "hsn",
+                "quantity",
+                "unit_price",
+                "line_total",
+                "invoice_total",
+            ]
+        )
+        for i, item in enumerate(parse_items(inv["line_items"]), 1):
+            row = (
+                [sid]
+                + [
+                    inv[k]
+                    for k in [
+                        "supplier",
+                        "consignee",
+                        "invoice_number",
+                        "invoice_date",
+                        "currency",
+                        "incoterm",
+                    ]
+                ]
+                + [by_kind["bill_of_lading"]["bl_number"]]
+                + [
+                    inv[k]
+                    for k in ["container", "packages", "gross_weight", "net_weight"]
+                ]
+                + [
+                    i,
+                    item["description"],
+                    item["hsn"],
+                    item["quantity"],
+                    item["unit_price"],
+                    format(number(item["quantity"]) * number(item["unit_price"]), "f"),
+                    inv["invoice_total"],
+                ]
+            )
+            w.writerow([safe_csv(v) for v in row])
+        audit(c, sid, u, "CSV exported", "Manifest line-item v2 layout")
     return Response(
         out.getvalue(),
         media_type="text/csv",

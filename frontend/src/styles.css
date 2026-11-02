@@ -1927,3 +1927,54 @@ form label input {
     padding: 8px;
   }
 }
+.document-recovery {
+  padding: 14px 16px;
+  border: 1px solid #e0e7d8;
+  border-radius: 6px;
+  background: #fbfcf8;
+  margin-bottom: 18px;
+}
+.recovery-actions {
+  display: flex;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.recovery-actions .secondary {
+  font-size: 10px;
+  padding: 9px 12px;
+}
+.replace-control {
+  position: relative;
+  cursor: pointer;
+}
+.replace-control input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.replace-control:focus-within {
+  outline: 2px solid var(--green);
+}
+.document-recovery p {
+  font-size: 10px;
+  color: #8d9983;
+  margin-top: 10px;
+}
+.document-recovery details {
+  font-size: 10px;
+  color: #788b6c;
+  margin-top: 10px;
+}
+.document-recovery summary {
+  cursor: pointer;
+}
+.document-recovery details a {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+}
+.document-recovery details a span {
+  margin-left: auto;
+}
